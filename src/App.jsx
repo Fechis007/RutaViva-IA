@@ -1,11 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { supabase } from './supabaseClient';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 
 // Seteamos la API KEY que creaste en el archivo .env
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// Función segura y limpia para llamar a Google Gemini
+// 🗺️ COORDENADAS REALES DE CALLES EN TIJUANA PARA LAS 5 DIAGONALES DE LA DEMO
+const coordenadasRutas = {
+  0: [ // Ruta 1: Zona Centro / Av. Revolución alterno por Calle 4ta
+    [32.5322, -117.0392], [32.5302, -117.0392], [32.5301, -117.0345], [32.5255, -117.0315]
+  ],
+  1: [ // Ruta 2: Zona Río / Desvío de Vía Rápida a Paseo de los Héroes
+    [32.5285, -117.0221], [32.5251, -117.0182], [32.5212, -117.0125], [32.5182, -117.0102]
+  ],
+  2: [ // Ruta 3: Conexión Centro hacia Garita de San Ysidro
+    [32.5352, -117.0321], [32.5385, -117.0285], [32.5412, -117.0295], [32.5429, -117.0271]
+  ],
+  3: [ // Ruta 4: Blvd. Agua Caliente seguro
+    [32.5195, -117.0255], [32.5175, -117.0212], [32.5141, -117.0152], [32.5112, -117.0111]
+  ],
+  4: [ // Ruta 5: Alternativa Inclusiva Interna Centro
+    [32.5265, -117.0381], [32.5242, -117.0352], [32.5231, -117.0312], [32.5215, -117.0282]
+  ]
+};
+
 async function llamarAGeminiIA(imageBase64) {
   const limpioBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + API_KEY;
@@ -37,14 +57,7 @@ async function llamarAGeminiIA(imageBase64) {
 
 const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&q=80&w=400';
 
-const INITIAL_REPORTS = [
-  { id: 1, type: 'Rampa Inexistente', severity: 'red', severityLabel: 'Crítico', location: 'Zona Centro, Tijuana', time: 'Hace 3 min', votes: 28, image: PLACEHOLDER_IMG, descripcion: 'Falta rampa de acceso en esquina principal.' },
-  { id: 2, type: 'Banqueta Dañada', severity: 'amber', severityLabel: 'Precaución', location: 'Av. Revolución, Tijuana', time: 'Hace 15 min', votes: 12, image: 'https://images.unsplash.com/photo-1584464457692-75d8d4c98e16?auto=format&fit=crop&q=80&w=400', descripcion: 'Grietas profundas impiden el paso seguro.' },
-  { id: 3, type: 'Paso Peatonal Reparado', severity: 'green', severityLabel: 'Resuelto', location: 'Calle 3ª, Tijuana', time: 'Hace 47 min', votes: 5, image: 'https://images.unsplash.com/photo-1558000143-a6750dc39906?auto=format&fit=crop&q=80&w=400', descripcion: 'Pintura y acceso renovados por el ayuntamiento.' },
-];
-
 function App() {
-  // --- ESTADOS DE LAS RUTAS E INTERFAZ ---
   const [currentRouteIndex, setCurrentRouteIndex] = useState(null);
   const [isPanelOpen, setIsPanelOpen] = useState(true);
   const [currentScreen, setCurrentScreen] = useState('map');
@@ -61,44 +74,22 @@ function App() {
     descripcion: ''
   });
 
-  const [reports, setReports] = useState([]); // 👈 Se queda vacío porque ahora vienen de la BD
+  const [reports, setReports] = useState([]); 
   const fileInputRef = useRef(null);
 
-  // 🗺️ Coordenadas ficticias en pantalla para simular los trazos sobre OpenStreetMap
   const rutasAlternativas = [
-    {
-      nombre: "Ruta 1: Evitando Bloqueo en Av. Revolución",
-      color: "#1CC0F3",
-      detalles: "🤖 Gemini desvió la ruta por Calle 4ta debido a banquetas destruidas en la Revu."
-    },
-    {
-      nombre: "Ruta 2: Conectando Zona Río Segura",
-      color: "#10b981",
-      detalles: "🤖 Alerta de rampa inexistente en Vía Rápida. Trayectoria corregida por Paseo de los Héroes."
-    },
-    {
-      nombre: "Ruta 3: Acceso Libre a Línea Internacional",
-      color: "#a855f7",
-      detalles: "🤖 Ruta optimizada hacia la Garita de San Ysidro evadiendo obras en la línea."
-    },
-    {
-      nombre: "Ruta 4: Cruce Accesible por Blvd. Agua Caliente",
-      color: "#f59e0b",
-      detalles: "🤖 Desvío activo en Blvd. Cuauhtémoc por semáforo peatonal auditivo averiado."
-    },
-    {
-      nombre: "Ruta 5: Alternativa Inclusiva Zona Centro",
-      color: "#ec4899",
-      detalles: "🤖 Escaneo de telemetría completado. Usando calles con rampas 100% operativas."
-    }
+    { nombre: "Ruta 1: Evitando Bloqueo en Av. Revolución", color: "#1CC0F3", detalles: "🤖 Gemini desvió la ruta por Calle 4ta debido a banquetas destruidas en la Revu." },
+    { nombre: "Ruta 2: Conectando Zona Río Segura", color: "#10b981", detalles: "🤖 Alerta de rampa inexistente en Vía Rápida. Trayectoria corregida por Paseo de los Héroes." },
+    { nombre: "Ruta 3: Acceso Libre a Línea Internacional", color: "#a855f7", detalles: "🤖 Ruta optimizada hacia la Garita de San Ysidro evadiendo obras en la línea." },
+    { nombre: "Ruta 4: Cruce Accessible por Blvd. Agua Caliente", color: "#f59e0b", detalles: "🤖 Desvío activo en Blvd. Cuauhtémoc por semáforo peatonal auditivo averiado." },
+    { nombre: "Ruta 5: Alternativa Inclusiva Zona Centro", color: "#ec4899", detalles: "🤖 Escaneo de telemetría completado. Usando calles con rampas 100% operativas." }
   ];
 
-  // 🔄 NUEVO: Función para ir a Supabase por los reportes reales de Tijuana
   const obtenerReportes = async () => {
     const { data, error } = await supabase
       .from('reports')
       .select('*')
-      .order('id', { ascending: false }); // Pone los más nuevos primero
+      .order('id', { ascending: false });
 
     if (!error && data) {
       setReports(data);
@@ -107,7 +98,6 @@ function App() {
     }
   };
 
-  // 🚀 NUEVO: Este bloque hace que la app cargue los datos en cuanto se abra la página
   useEffect(() => {
     obtenerReportes();
   }, []);
@@ -117,7 +107,6 @@ function App() {
     setCurrentRouteIndex(randomIndex);
     setActiveRoute(true);
 
-    //ESTO ACTUALIZA LOS TEXTBOX EN CALIENTE DEPENDIENDO DE LA RUTA SELECCIONADA
     if (randomIndex === 0) {
       setOrigin('📍 Blvd. Fundadores');
       setDestination('🏁 Av. Revolución (Desvío Calle 4ta)');
@@ -182,110 +171,157 @@ function App() {
   };
 
   const simulateCapture = () => {
-    setUploadedImage(PLACEHOLDER_IMG);
-    setReportStep('analyzing');
-    setTimeout(() => {
-      setAiData({
-        type: 'Rampa Inexistente',
+    const escenariosDemo = [
+      {
+        image: 'https://images.unsplash.com/photo-1634712439169-7c85e6ac37a0?q=80&w=400', 
+        type: 'Vehiculo Obstruyendo',
         severity: 'red',
         severityLabel: 'Crítico',
-        descripcion: 'Esquina bloqueada por falta de infraestructura incluyente en Tijuana.'
+        descripcion: '🤖 Gemini Vision analizó la imagen: Automóvil sedán gris bloqueando rampa de acceso peatonal en esquina.'
+      },
+      {
+        image: 'https://images.unsplash.com/photo-1596395817296-6e54f39f3794?q=80&w=400', 
+        type: 'Banqueta Dañada',
+        severity: 'amber',
+        severityLabel: 'Precaución',
+        descripcion: '🤖 Gemini Vision analizó la imagen: Pavimento de banqueta levantado y agrietado, representando riesgo de caída.'
+      },
+      {
+        image: 'https://images.unsplash.com/photo-1579783901586-d88db74b4fe1?q=80&w=400', 
+        type: 'Obras sin Señalizar',
+        severity: 'red',
+        severityLabel: 'Crítico',
+        descripcion: '🤖 Gemini Vision analizó la imagen: Zanja abierta en paso peatonal sin rampa alternativa ni señalización auditiva.'
+      }
+    ];
+
+    const escenarioAleatorio = escenariosDemo[Math.floor(Math.random() * escenariosDemo.length)];
+    setUploadedImage(escenarioAleatorio.image);
+    setReportStep('analyzing');
+
+    setTimeout(() => {
+      setAiData({
+        type: escenarioAleatorio.type,
+        severity: escenarioAleatorio.severity,
+        severityLabel: escenarioAleatorio.severityLabel,
+        descripcion: escenarioAleatorio.descripcion
       });
       setReportStep('results');
-    }, 2000);
+    }, 2500);
   };
 
-const publishReport = async () => {
-    // 📦 Estructuramos el objeto con los datos que nos dio Gemini
+  const publishReport = async () => {
+    console.log("🚀 Iniciando el guardado en la Base de Datos...");
+    const latDemo = 32.5225 + (Math.random() - 0.5) * 0.015;
+    const lngDemo = -117.0195 + (Math.random() - 0.5) * 0.015;
+
     const nuevoReporte = {
       type: aiData.type,
-      severity: aiData.severity,
-      severityLabel: aiData.severityLabel,
-      location: 'Zona Centro, Tijuana, B.C.',
-      image: uploadedImage || PLACEHOLDER_IMG, // Si no hay foto, usa la de por defecto
+      severity: aiData.severity, 
+      severitylabel: aiData.severityLabel, 
+      location: 'Tijuana (Demo)',
+      lat: latDemo,
+      lng: lngDemo,
+      image: uploadedImage || PLACEHOLDER_IMG,
       descripcion: aiData.descripcion
     };
 
-    // 📡 Mandamos el reporte real a la tabla 'reports' de Supabase
-    const { error } = await supabase
-      .from('reports')
-      .insert([nuevoReporte]);
+    const { error } = await supabase.from('reports').insert([nuevoReporte]);
 
     if (!error) {
-      // 🔄 Si se guardó chido, volvemos a llamar a la BD para actualizar el mapa en vivo
+      console.log("✅ ¡Guardado con éxito!");
       await obtenerReportes(); 
-      setReportStep('published');
+      setReportStep('published'); 
     } else {
-      console.error('Error al guardar en Supabase:', error);
-      alert('Hubo un problema al conectar con la base de datos.');
+      console.error("❌ Error Supabase:", error);
+      alert("Error al guardar en Supabase: " + error.message);
     }
   };
 
   return (
     <div className="app-container">
+      {/* Estilos CSS inyectados directo para asegurar el efecto de parpadeo neón de la ruta */}
+      <style>{`
+        .linea-neon {
+          animation: pulsoNeon 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes pulsoNeon {
+          from { stroke-opacity: 0.6; stroke-width: 5; }
+          to { stroke-opacity: 1; stroke-width: 7; }
+        }
+      `}</style>
+
       <nav className="nav-bar">
         <div className="logo-area">
           <div className="logo-title">RutaViva</div>
           <div className="logo-tagline">Movilidad Inteligente</div>
         </div>
+
         <button className={`nav-item ${currentScreen === 'map' ? 'active' : ''}`} onClick={() => setCurrentScreen('map')}>
           <span className="icon">🗺️</span>
           <span className="label">Mapa</span>
         </button>
+
         <button className={`nav-item ${currentScreen === 'report' ? 'active' : ''}`} onClick={() => { setCurrentScreen('report'); setReportStep('camera'); setUploadedImage(null); }}>
           <span className="icon">📷</span>
           <span className="label">Reportar</span>
         </button>
+
         <button className={`nav-item ${currentScreen === 'community' ? 'active' : ''}`} onClick={() => setCurrentScreen('community')}>
           <span className="icon">🏘️</span>
           <span className="label">Comunidad</span>
         </button>
       </nav>
 
-      <main className="content-area">
+      <main className="main-content" style={{ flex: 1, position: 'relative', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        
+        {/* ================= PANTALLA 1: MAPA ================= */}
         {currentScreen === 'map' && (
-          <div className="map-screen" style={{ position: 'relative', height: '100%', width: '100%', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#0c1033' }}>
+          <div className="map-screen" style={{ position: 'relative', flex: 1, width: '100%', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#0c1033' }}>
             
-            {/* 🗺️ CONTAINER INDEPENDIENTE PARA EL MAPA ABSOLUTO */}
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }}>
-              <iframe 
-                title="Mapa de Tijuana"
-                width="100%" 
-                height="100%" 
-                style={{ border: 0 }}
-                src="https://www.openstreetmap.org/export/embed.html?bbox=-117.0600%2C32.5000%2C-116.9900%2C32.5400&amp;layer=mapnik"
-              ></iframe>
+              <MapContainer 
+                center={[32.5225, -117.0195]} 
+                zoom={14} 
+                style={{ height: '100%', width: '100%' }}
+                zoomControl={false}
+              >
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  attribution='&copy; CARTO'
+                />
+                
+                {/* 🚀 AQUÍ PINTAMOS LA NUEVA LÍNEA REAL INTEGRADA EN LAS CALLES */}
+                {activeRoute && currentRouteIndex !== null && coordenadasRutas[currentRouteIndex] && (
+                  <Polyline 
+                    positions={coordenadasRutas[currentRouteIndex]}
+                    pathOptions={{
+                      color: rutasAlternativas[currentRouteIndex].color,
+                      weight: 6,
+                      dashArray: '12, 8',
+                      className: 'linea-neon'
+                    }}
+                  />
+                )}
+
+                {reports.filter(report => report.lat && report.lng).map(report => (
+                  <Marker key={report.id} position={[report.lat, report.lng]}>
+                    <Popup>
+                      <div style={{ textAlign: 'center' }}>
+                        <span style={{ fontSize: '20px' }}>{report.severity === 'red' ? '🔴' : report.severity === 'amber' ? '🟡' : '🟢'}</span>
+                        <h3 style={{ margin: '5px 0', fontSize: '14px' }}>{report.type}</h3>
+                        <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>{report.descripcion}</p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
             </div>
 
-            {/* ⚡ CAPA SVG PARA LAS RUTAS ANIMADAS */}
-            {activeRoute && currentRouteIndex !== null && (
-              <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }}>
-                {currentRouteIndex === 0 && <path d="M 150 450 Q 250 300 400 380 T 650 200" stroke="#1CC0F3" strokeWidth="6" fill="none" strokeDasharray="12,6" style={{ animation: 'dash 2s linear infinite' }} />}
-                {currentRouteIndex === 1 && <path d="M 120 250 Q 300 150 450 280 T 750 350" stroke="#10b981" strokeWidth="6" fill="none" strokeDasharray="12,6" style={{ animation: 'dash 2s linear infinite' }} />}
-                {currentRouteIndex === 2 && <path d="M 200 500 Q 150 350 400 200 T 550 100" stroke="#a855f7" strokeWidth="6" fill="none" strokeDasharray="12,6" style={{ animation: 'dash 2s linear infinite' }} />}
-                {currentRouteIndex === 3 && <path d="M 50 150 Q 250 180 500 120 T 700 400" stroke="#f59e0b" strokeWidth="6" fill="none" strokeDasharray="12,6" style={{ animation: 'dash 2s linear infinite' }} />}
-                {currentRouteIndex === 4 && <path d="M 300 450 Q 400 300 550 350 T 650 180" stroke="#ec4899" strokeWidth="6" fill="none" strokeDasharray="12,6" style={{ animation: 'dash 2s linear infinite' }} />}
-                <style>{`@keyframes dash { to { stroke-dashoffset: -30; } }`}</style>
-              </svg>
-            )}
-
-            {/* 🔽 PANEL INTELIGENTE COLAPSABLE */}
-            <div className="map-panel" style={{ 
-              zIndex: 10, 
-              maxHeight: isPanelOpen ? '400px' : '45px', 
-              overflow: 'hidden', 
-              transition: 'all 0.3s ease-in-out',
-              paddingBottom: isPanelOpen ? '16px' : '0px',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-              position: 'absolute', top: '16px', left: '16px', width: '320px'
-            }}>
+            <div className="map-panel" style={{ zIndex: 10, maxHeight: isPanelOpen ? '400px' : '45px', overflow: 'hidden', transition: 'all 0.3s ease-in-out', paddingBottom: isPanelOpen ? '16px' : '0px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', position: 'absolute', top: '16px', left: '16px', width: '320px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isPanelOpen ? '12px' : '0', cursor: 'pointer' }} onClick={() => setIsPanelOpen(!isPanelOpen)}>
-                <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#1CC0F3' }}>
-                  {isPanelOpen ? '🗺️ Planificador de Ruta IA' : '🗺️ Abrir Planificador'}
-                </span>
-                <button style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '14px' }}>
-                  {isPanelOpen ? '🔽 Ocultar' : '🔼 Mostrar'}
-                </button>
+                <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#1CC0F3' }}>{isPanelOpen ? '🗺️ Planificador de Ruta IA' : '🗺️ Abrir Planificador'}</span>
+                <button style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '14px' }}>{isPanelOpen ? '🔽 Ocultar' : '🔼 Mostrar'}</button>
               </div>
 
               {isPanelOpen && (
@@ -294,25 +330,10 @@ const publishReport = async () => {
                   <input className="map-input" placeholder="🏁 ¿A dónde deseas ir de forma segura?" value={destination} onChange={e => setDestination(e.target.value)} />
                   
                   {activeRoute && currentRouteIndex !== null && (
-                    <div style={{ color: rutasAlternativas[currentRouteIndex].color, fontSize: '12px', fontWeight: 'bold', textAlign: 'center', padding: '4px', backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '4px' }}>
-                      📍 {rutasAlternativas[currentRouteIndex].nombre}
-                    </div>
+                    <div style={{ color: rutasAlternativas[currentRouteIndex].color, fontSize: '12px', fontWeight: 'bold', textAlign: 'center', padding: '4px', backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '4px' }}>📍 {rutasAlternativas[currentRouteIndex].nombre}</div>
                   )}
 
-                  <button 
-                    className="btn-primary" 
-                    onClick={() => {
-                      if (activeRoute) {
-                        setActiveRoute(false);
-                        setCurrentRouteIndex(null);
-                        setOrigin('');       // 🧹 Limpia origen
-                        setDestination('');  // 🧹 Limpia destino
-                      } else {
-                        generarRutaAleatoria();
-                      }
-                    }}
-                    style={{ backgroundColor: activeRoute ? '#ef4444' : '#1CC0F3' }}
-                  >
+                  <button className="btn-primary" onClick={() => { if (activeRoute) { setActiveRoute(false); setCurrentRouteIndex(null); setOrigin(''); setDestination(''); } else { generarRutaAleatoria(); } }} style={{ backgroundColor: activeRoute ? '#ef4444' : '#1CC0F3' }}>
                     {activeRoute ? '❌ Limpiar Ruta' : 'Optimizar Ruta con IA'}
                   </button>
                   {activeRoute && currentRouteIndex !== null && (
@@ -324,39 +345,32 @@ const publishReport = async () => {
               )}
             </div>
 
-            {/* 🔥 EL BOTÓN FLOTANTE MÁGICO: SIMULADOR DE ESCANEO */}
-            <button 
-              className="fab-report" 
-              style={{ zIndex: 10, position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)', width: 'auto', padding: '12px 24px', whiteSpace: 'nowrap' }} 
-              onClick={generarRutaAleatoria}
-            >
+            <button className="fab-report" style={{ zIndex: 10, position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)', width: 'auto', padding: '12px 24px', whiteSpace: 'nowrap' }} onClick={generarRutaAleatoria}>
               🔄 Recalcular Ruta Alternativa (Simular IA)
             </button>
           </div>
         )}
 
+        {/* ================= PANTALLA 2: REPORTE CON CÁMARA ================= */}
         {currentScreen === 'report' && (
-          <div className="report-screen">
-            <h2 style={{ marginBottom: '24px', textAlign: 'center' }}>Telemetría Multimodal</h2>
-            
+          <div className="report-screen" style={{ padding: '20px' }}>
             {reportStep === 'camera' && (
-              <>
-                <div className="camera-container" style={{ backgroundImage: uploadedImage ? `url(${uploadedImage})` : 'none', backgroundSize: 'cover', backgroundPosition: 'center', height: '200px', backgroundColor: '#1e293b', borderRadius: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-                  {!uploadedImage && (
-                    <span className="camera-text" style={{ color: 'white' }}>Captura o sube una foto urbana</span>
-                  )}
-                </div>
-                <div className="shutter-btn-wrapper" style={{ marginTop: '16px', display: 'flex', justifyContent: 'center', gap: '12px' }}>
-                  <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImageUpload} />
-                  <button className="btn-primary" onClick={() => fileInputRef.current.click()}>Subir Foto Real</button>
-                  <button className="btn-primary" style={{ backgroundColor: '#475569' }} onClick={simulateCapture}>Simular Cámara</button>
-                </div>
-              </>
+              <div style={{ textAlign: 'center' }}>
+                <h2 style={{ color: 'white', marginBottom: '10px' }}>📸 Reportar Obstáculo</h2>
+                <p style={{ color: 'gray', marginBottom: '20px' }}>Toma una foto para que Gemini IA analice el problema.</p>
+                <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImageUpload} />
+                <button className="btn-primary" style={{ width: '100%', marginBottom: '12px' }} onClick={() => fileInputRef.current.click()}>
+                  Subir Foto Real
+                </button>
+                <button className="btn-primary" style={{ width: '100%', backgroundColor: '#a855f7' }} onClick={simulateCapture}>
+                  Simular Captura (Demo)
+                </button>
+              </div>
             )}
 
             {reportStep === 'analyzing' && (
               <div className="analyzing-container" style={{ textAlign: 'center', padding: '40px 0' }}>
-                <h3 style={{ color: '#1CC0F3' }}>🤖 Consultando tokens ilimitados de Gemini 1.5 Flash...</h3>
+                <h3 style={{ color: '#1CC0F3' }}>🤖 Consultando IA de Gemini...</h3>
                 <p style={{ color: 'gray' }}>Extrayendo riesgos de movilidad en Tijuana...</p>
               </div>
             )}
@@ -364,37 +378,32 @@ const publishReport = async () => {
             {reportStep === 'results' && (
               <div className="results-form">
                 <div className="form-group">
-                  <label className="form-label">Tipo clasificado por la IA</label>
+                  <label className="form-label" style={{ color: 'white' }}>Tipo clasificado por la IA</label>
                   <input className="form-input" value={aiData.type} readOnly style={{ fontWeight: 'bold', color: '#1CC0F3' }} />
                 </div>
 
                 <div className="form-group" style={{ marginTop: '12px' }}>
-                  <label className="form-label">Semaforización de Gravedad</label>
-                  <div className={`severity-option active ${aiData.severity}`} style={{ padding: '12px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: aiData.severity === 'red' ? '#ef4444' : aiData.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>
+                  <label className="form-label" style={{ color: 'white' }}>Semaforización de Gravedad</label>
+                  <div style={{ padding: '12px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: aiData.severity === 'red' ? '#ef4444' : aiData.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>
                     {aiData.severity === 'red' ? '🔴 ALTA' : aiData.severity === 'amber' ? '🟡 MEDIA' : '🟢 BAJA'} — {aiData.severityLabel}
                   </div>
                 </div>
 
                 <div className="form-group" style={{ marginTop: '12px' }}>
-                  <label className="form-label">Descripción generada automáticamente</label>
+                  <label className="form-label" style={{ color: 'white' }}>Descripción generada automáticamente</label>
                   <textarea className="form-textarea" style={{ width: '100%', minHeight: '60px' }} value={aiData.descripcion} onChange={(e) => setAiData({...aiData, descripcion: e.target.value})}></textarea>
                 </div>
 
-                <div className="form-group" style={{ marginTop: '12px' }}>
-                  <label className="form-label">Ubicación asignada</label>
-                  <input className="form-input" defaultValue="Zona Centro, Tijuana, B.C." />
-                </div>
-
-                <button className="btn-primary" style={{ marginTop: '24px', width: '100%' }} onClick={publishReport}>
-                  ✅ Alimentar Mapa Colectivo
+                <button className="btn-primary" style={{ marginTop: '24px', width: '100%', backgroundColor: '#1CC0F3' }} onClick={publishReport}>
+                Alimentar Mapa Colectivo
                 </button>
               </div>
             )}
 
             {reportStep === 'published' && (
               <div className="published-container" style={{ textAlign: 'center', padding: '40px 0' }}>
-                <h2 style={{ marginBottom: '8px' }}>¡Mapa Actualizado!</h2>
-                <p style={{ color: 'gray', marginBottom: '32px' }}>La base de datos absorbió el reporte de la IA. Las próximas rutas evitarán esta calle.</p>
+                <h2 style={{ color: 'white', marginBottom: '8px' }}>¡Mapa Actualizado!</h2>
+                <p style={{ color: 'gray', marginBottom: '32px' }}>La base de datos absorbió el reporte. Las próximas rutas evitarán esta zona.</p>
                 <button className="btn-primary" onClick={() => setCurrentScreen('map')}>
                   Volver al Mapa Seguro
                 </button>
@@ -403,10 +412,11 @@ const publishReport = async () => {
           </div>
         )}
 
+        {/* ================= PANTALLA 3: COMUNIDAD ================= */}
         {currentScreen === 'community' && (
-          <div className="community-screen">
+          <div className="community-screen" style={{ padding: '20px' }}>
             <div className="community-header" style={{ marginBottom: '20px' }}>
-              <h2>Reportes Activos</h2>
+              <h2 style={{ color: 'white' }}>Reportes Activos</h2>
               <p style={{ color: 'gray' }}>Tijuana — Base de datos inteligente</p>
             </div>
 
@@ -416,12 +426,10 @@ const publishReport = async () => {
                   <img src={report.image} alt="Reporte" className="report-thumb" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
                   <div className="report-content">
                     <div className="report-header" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span className={`report-badge ${report.severity}`} style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '12px', backgroundColor: report.severity === 'red' ? '#ef4444' : report.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>{report.severityLabel}</span>
-                      <span className="report-time" style={{ fontSize: '12px', color: 'gray' }}>{report.time}</span>
+                      <span className={`report-badge ${report.severity}`} style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '12px', backgroundColor: report.severity === 'red' ? '#ef4444' : report.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>{report.severitylabel}</span>
                     </div>
-                    <h3 style={{ margin: '4px 0', fontSize: '16px' }}>{report.type}</h3>
+                    <h3 style={{ margin: '4px 0', fontSize: '16px', color: 'white' }}>{report.type}</h3>
                     <p style={{ fontSize: '13px', color: 'lightgray', margin: '4px 0' }}>{report.descripcion}</p>
-                    <div className="report-location" style={{ fontSize: '12px', color: 'gray' }}>📍 {report.location}</div>
                   </div>
                 </div>
               ))}
@@ -432,5 +440,4 @@ const publishReport = async () => {
     </div>
   );
 }
-
 export default App;
