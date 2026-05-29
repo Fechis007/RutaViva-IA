@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
+import { supabase } from './supabaseClient';
 
 // Seteamos la API KEY que creaste en el archivo .env
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -60,7 +61,7 @@ function App() {
     descripcion: ''
   });
 
-  const [reports, setReports] = useState(INITIAL_REPORTS);
+  const [reports, setReports] = useState([]); // 👈 Se queda vacío porque ahora vienen de la BD
   const fileInputRef = useRef(null);
 
   // 🗺️ Coordenadas ficticias en pantalla para simular los trazos sobre OpenStreetMap
@@ -91,6 +92,25 @@ function App() {
       detalles: "🤖 Escaneo de telemetría completado. Usando calles con rampas 100% operativas."
     }
   ];
+
+  // 🔄 NUEVO: Función para ir a Supabase por los reportes reales de Tijuana
+  const obtenerReportes = async () => {
+    const { data, error } = await supabase
+      .from('reports')
+      .select('*')
+      .order('id', { ascending: false }); // Pone los más nuevos primero
+
+    if (!error && data) {
+      setReports(data);
+    } else {
+      console.error("Error al traer reportes de Supabase:", error);
+    }
+  };
+
+  // 🚀 NUEVO: Este bloque hace que la app cargue los datos en cuanto se abra la página
+  useEffect(() => {
+    obtenerReportes();
+  }, []);
 
   const generarRutaAleatoria = () => {
     const randomIndex = Math.floor(Math.random() * rutasAlternativas.length);
@@ -175,20 +195,30 @@ function App() {
     }, 2000);
   };
 
-  const publishReport = () => {
-    const newReport = {
-      id: Date.now(),
+const publishReport = async () => {
+    // 📦 Estructuramos el objeto con los datos que nos dio Gemini
+    const nuevoReporte = {
       type: aiData.type,
       severity: aiData.severity,
       severityLabel: aiData.severityLabel,
-      location: 'Zona Centro, Tijuana',
-      time: 'Hace 1 min',
-      votes: 0,
-      image: uploadedImage || PLACEHOLDER_IMG,
+      location: 'Zona Centro, Tijuana, B.C.',
+      image: uploadedImage || PLACEHOLDER_IMG, // Si no hay foto, usa la de por defecto
       descripcion: aiData.descripcion
     };
-    setReports(prev => [newReport, ...prev]);
-    setReportStep('published');
+
+    // 📡 Mandamos el reporte real a la tabla 'reports' de Supabase
+    const { error } = await supabase
+      .from('reports')
+      .insert([nuevoReporte]);
+
+    if (!error) {
+      // 🔄 Si se guardó chido, volvemos a llamar a la BD para actualizar el mapa en vivo
+      await obtenerReportes(); 
+      setReportStep('published');
+    } else {
+      console.error('Error al guardar en Supabase:', error);
+      alert('Hubo un problema al conectar con la base de datos.');
+    }
   };
 
   return (
