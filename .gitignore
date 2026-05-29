@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# API Keys y Variables de Entorno
+.env
+.env.local
+.env.*.local
