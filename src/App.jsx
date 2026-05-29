@@ -27,8 +27,13 @@ const coordenadasRutas = {
 };
 
 async function llamarAGeminiIA(imageBase64) {
+  // Asegúrate de tener declarada tu API_KEY en el entorno o arriba en tu componente
+  const API_KEY = "AQAb8RN6LWWnTajAeOxLihH-GkQ145if5ZBfGy-orewa0xYz8Mw"; 
+
+  // Limpiamos el encabezado del Base64 si es que viene de un Canvas o FileReader
   const limpioBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + API_KEY;
+  
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
   const instruccionIA = 'Analiza la imagen de Tijuana. Detecta obstaculos de movilidad urbana. Devuelve solo un objeto JSON con este formato: {"type": "Rampa Inexistente", "severity": "red", "severityLabel": "Critico", "descripcion": "resumen de una linea"}. Usa exactamente "Rampa Inexistente", "Banqueta Danada", "Vehiculo Obstruyendo" o "Semaforo Averiado" para el type. Usa "red", "amber" o "green" para la severity.';
 
@@ -42,24 +47,37 @@ async function llamarAGeminiIA(imageBase64) {
           { inlineData: { mimeType: 'image/jpeg', data: limpioBase64 } }
         ]
       }],
-      generationConfig: { responseMimeType: 'application/json' }
+      generationConfig: { 
+        responseMimeType: 'application/json' 
+      }
     })
   });
 
   if (!response.ok) {
-    throw new Error('Error de conexion');
+    const errorData = await response.json().catch(() => ({}));
+    console.error("Detalle del error de Gemini:", errorData);
+    throw new Error('Error de conexion con Gemini');
   }
 
   const data = await response.json();
-  const textoJson = data.candidates[0].content.parts[0].text;
-  return JSON.parse(textoJson.trim());
+  
+  // Extraemos el texto de la respuesta de la IA
+  let textoJson = data.candidates[0].content.parts[0].text;
+  
+  /* ==========================================================================
+      🛡️ TRUCO DE LIMPIEZA: Eliminamos los bloques markdown si Gemini los puso
+     ========================================================================== */
+  textoJson = textoJson.replace(/```json|```/g, '').trim();
+
+  // Ahora sí, parseo 100% seguro y directo a tu mapa o feed
+  return JSON.parse(textoJson);
 }
 
 const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&q=80&w=400';
 
 function App() {
   const [currentRouteIndex, setCurrentRouteIndex] = useState(null);
-  const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [isPanelOpen, setIsPanelOpen] = useState(true); 
   const [currentScreen, setCurrentScreen] = useState('map');
   const [activeRoute, setActiveRoute] = useState(false);
   const [origin, setOrigin] = useState('');
@@ -177,25 +195,33 @@ function App() {
         type: 'Vehiculo Obstruyendo',
         severity: 'red',
         severityLabel: 'Crítico',
-        descripcion: '🤖 Gemini Vision analizó la imagen: Automóvil sedán gris bloqueando rampa de acceso peatonal en esquina.'
+        descripcion: '🤖-Gemini Vision analizó la imagen: Automóvil sedán gris bloqueando rampa de acceso peatonal en esquina.'
       },
       {
-        image: 'https://images.unsplash.com/photo-1596395817296-6e54f39f3794?q=80&w=400', 
+        image: 'https://blob.diariodelyaqui.mx/images/2025/02/21/rampas--5.jpg', 
         type: 'Banqueta Dañada',
         severity: 'amber',
         severityLabel: 'Precaución',
-        descripcion: '🤖 Gemini Vision analizó la imagen: Pavimento de banqueta levantado y agrietado, representando riesgo de caída.'
+        descripcion: '🤖-Gemini Vision analizó la imagen: Pavimento de banqueta levantado y agrietado, representando riesgo de caída.'
       },
       {
-        image: 'https://images.unsplash.com/photo-1579783901586-d88db74b4fe1?q=80&w=400', 
-        type: 'Obras sin Señalizar',
+        image: 'https://www.sopitas.com/wp-content/uploads/2023/03/lluvias-cdmx-clima-30-marzo-billie-eilish.jpg?w=1024',
+        type: 'Calle Inundada',
         severity: 'red',
         severityLabel: 'Crítico',
-        descripcion: '🤖 Gemini Vision analizó la imagen: Zanja abierta en paso peatonal sin rampa alternativa ni señalización auditiva.'
+        descripcion: '🤖-Gemini Vision analizó la imagen: Calle completamente inundada por fuertes lluvias, intransitable para peatones.'
+      },
+      {
+        image: 'https://images.milenio.com/a53bq0Zfdu7Z0DH_yB0AX6xmoTs=/345x194/uploads/media/2025/08/15/lluvia-deja-inundaciones-casas-plaza.jpg', 
+        type: 'Obras sin Señalizar/Calles Obstruidas',
+        severity: 'red',
+        severityLabel: 'Crítico',
+        descripcion: '🤖-Gemini Vision analizó la imagen: Zanja abierta en paso peatonal sin rampa alternativa ni señalización auditiva.'
       }
     ];
 
     const escenarioAleatorio = escenariosDemo[Math.floor(Math.random() * escenariosDemo.length)];
+    
     setUploadedImage(escenarioAleatorio.image);
     setReportStep('analyzing');
 
@@ -207,11 +233,11 @@ function App() {
         descripcion: escenarioAleatorio.descripcion
       });
       setReportStep('results');
-    }, 2500);
+    }, 3500);
   };
 
   const publishReport = async () => {
-    console.log("🚀 Iniciando el guardado en la Base de Datos...");
+    console.log("Iniciando el guardado en la Base de Datos...");
     const latDemo = 32.5225 + (Math.random() - 0.5) * 0.015;
     const lngDemo = -117.0195 + (Math.random() - 0.5) * 0.015;
 
@@ -223,7 +249,9 @@ function App() {
       lat: latDemo,
       lng: lngDemo,
       image: uploadedImage || PLACEHOLDER_IMG,
-      descripcion: aiData.descripcion
+      descripcion: aiData.descripcion,
+      still_there_votes: 0,
+      resolved_votes: 0
     };
 
     const { error } = await supabase.from('reports').insert([nuevoReporte]);
@@ -238,9 +266,48 @@ function App() {
     }
   };
 
+  // 🗳️ NUEVA FUNCIÓN INTERACTIVA DE VOTO COMUNITARIO
+  const votarObstaculo = async (reportId, votoSi) => {
+    // Buscamos el reporte seleccionado en nuestro estado local
+    const reporteActual = reports.find(r => r.id === reportId);
+    if (!reporteActual) return;
+
+    let updateData = {};
+
+    if (votoSi) {
+      // "Sí sigue allí": Sumamos un voto positivo
+      const nuevosVotosSi = (reporteActual.still_there_votes || 0) + 1;
+      updateData = { still_there_votes: nuevosVotosSi };
+    } else {
+      // "No, ya no está": Sumamos voto de resolución
+      const nuevosVotosNo = (reporteActual.resolved_votes || 0) + 1;
+      
+      // Regla de Oro: Si acumula 3 o más votos de "No", se limpia de Supabase automáticamente
+      if (nuevosVotosNo >= 3) {
+        const { error } = await supabase.from('reports').delete().eq('id', reportId);
+        if (!error) {
+          console.log(`🗑️ El reporte ${reportId} fue resuelto y eliminado por la comunidad.`);
+          await obtenerReportes();
+          return;
+        }
+      } else {
+        updateData = { resolved_votes: nuevosVotosNo };
+      }
+    }
+
+    // Actualizamos los datos del registro en Supabase
+    const { error } = await supabase.from('reports').update(updateData).eq('id', reportId);
+
+    if (!error) {
+      // Refrescamos la lista de reportes en el mapa
+      await obtenerReportes();
+    } else {
+      console.error("Error al actualizar voto:", error);
+    }
+  };
+
   return (
     <div className="app-container">
-      {/* Estilos CSS inyectados directo para asegurar el efecto de parpadeo neón de la ruta */}
       <style>{`
         .linea-neon {
           animation: pulsoNeon 1.5s ease-in-out infinite alternate;
@@ -251,66 +318,42 @@ function App() {
         }
       `}</style>
 
-      <nav className="nav-bar">
-        <div className="logo-area">
-          <div className="logo-title">RutaViva</div>
-          <div className="logo-tagline">Movilidad Inteligente</div>
-        </div>
-
-        <button className={`nav-item ${currentScreen === 'map' ? 'active' : ''}`} onClick={() => setCurrentScreen('map')}>
-          <span className="icon">🗺️</span>
-          <span className="label">Mapa</span>
-        </button>
-
-        <button className={`nav-item ${currentScreen === 'report' ? 'active' : ''}`} onClick={() => { setCurrentScreen('report'); setReportStep('camera'); setUploadedImage(null); }}>
-          <span className="icon">📷</span>
-          <span className="label">Reportar</span>
-        </button>
-
-        <button className={`nav-item ${currentScreen === 'community' ? 'active' : ''}`} onClick={() => setCurrentScreen('community')}>
-          <span className="icon">🏘️</span>
-          <span className="label">Comunidad</span>
-        </button>
-      </nav>
-
-      <main className="main-content" style={{ flex: 1, position: 'relative', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      {/* 💻 CONTENIDO PRINCIPAL REORGANIZADO */}
+      <main className="content-area">
         
         {/* ================= PANTALLA 1: MAPA ================= */}
         {currentScreen === 'map' && (
-          <div className="map-screen" style={{ position: 'relative', flex: 1, width: '100%', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#0c1033' }}>
-            
-            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }}>
-              <MapContainer 
-                center={[32.5225, -117.0195]} 
-                zoom={14} 
-                style={{ height: '100%', width: '100%' }}
-                zoomControl={false}
-              >
-                <TileLayer
-                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                  attribution='&copy; CARTO'
-                />
-                
-                {/* 🚀 AQUÍ PINTAMOS LA NUEVA LÍNEA REAL INTEGRADA EN LAS CALLES */}
+          <div className="map-screen">
+            <div className="svg-map" style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+              <MapContainer center={[32.5225, -117.0195]} zoom={14} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+                <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' />
                 {activeRoute && currentRouteIndex !== null && coordenadasRutas[currentRouteIndex] && (
-                  <Polyline 
-                    positions={coordenadasRutas[currentRouteIndex]}
-                    pathOptions={{
-                      color: rutasAlternativas[currentRouteIndex].color,
-                      weight: 6,
-                      dashArray: '12, 8',
-                      className: 'linea-neon'
-                    }}
-                  />
+                  <Polyline positions={coordenadasRutas[currentRouteIndex]} pathOptions={{ color: rutasAlternativas[currentRouteIndex].color, weight: 6, dashArray: '12, 8', className: 'linea-neon' }} />
                 )}
-
                 {reports.filter(report => report.lat && report.lng).map(report => (
                   <Marker key={report.id} position={[report.lat, report.lng]}>
                     <Popup>
-                      <div style={{ textAlign: 'center' }}>
-                        <span style={{ fontSize: '20px' }}>{report.severity === 'red' ? '🔴' : report.severity === 'amber' ? '🟡' : '🟢'}</span>
-                        <h3 style={{ margin: '5px 0', fontSize: '14px' }}>{report.type}</h3>
-                        <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>{report.descripcion}</p>
+                      <div className="leaflet-popup-cyber">
+                        <div className="popup-badge-container">
+                          <span>{report.severity === 'red' ? '🔴' : report.severity === 'amber' ? '🟡' : '🟢'}</span>
+                          <span className="popup-badge-title">{report.type}</span>
+                        </div>
+                        <p className="popup-description">{report.descripcion}</p>
+                        
+                        {/* 🗳️ INTERFAZ COMUNITARIA: ¿SIGUE ALLÍ? */}
+                        <div className="community-vote-box">
+                          <div className="vote-question">¿Sigue el obstáculo aquí?</div>
+                          <div className="vote-buttons-row">
+                            <button className="btn-vote-yes" onClick={() => votarObstaculo(report.id, true)}>
+                              Sí ({report.still_there_votes || 0}) ⚠️
+                            </button>
+                            <button className="btn-vote-no" onClick={() => votarObstaculo(report.id, false)}>
+                              No ({report.resolved_votes || 0}/3) ✅
+                            </button>
+                          </div>
+                          <span className="vote-subtext">3 votos de 'No' eliminan el reporte del mapa</span>
+                        </div>
+
                       </div>
                     </Popup>
                   </Marker>
@@ -318,94 +361,112 @@ function App() {
               </MapContainer>
             </div>
 
-            <div className="map-panel" style={{ zIndex: 10, maxHeight: isPanelOpen ? '400px' : '45px', overflow: 'hidden', transition: 'all 0.3s ease-in-out', paddingBottom: isPanelOpen ? '16px' : '0px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', position: 'absolute', top: '16px', left: '16px', width: '320px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isPanelOpen ? '12px' : '0', cursor: 'pointer' }} onClick={() => setIsPanelOpen(!isPanelOpen)}>
-                <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#1CC0F3' }}>{isPanelOpen ? '🗺️ Planificador de Ruta IA' : '🗺️ Abrir Planificador'}</span>
-                <button style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '14px' }}>{isPanelOpen ? '🔽 Ocultar' : '🔼 Mostrar'}</button>
+            <div className="map-panel-horizontal">
+              <div className="planner-badge" onClick={() => setIsPanelOpen(!isPanelOpen)} style={{ cursor: 'pointer' }}>
+                <span>🤖</span> <span className="planner-badge-text">Ruta IA Tijuana</span>
               </div>
-
+              <button className="btn-planner-action" style={{ backgroundColor: isPanelOpen ? '#334155' : '#10b981', padding: '8px', fontSize: '12px' }} onClick={() => setIsPanelOpen(!isPanelOpen)}>
+                {isPanelOpen ? '✕ Minimizar Panel' : '🗺️ Abrir Planificador'}
+              </button>
               {isPanelOpen && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <input className="map-input" placeholder="📍 Destino inicial en Tijuana..." value={origin} onChange={e => setOrigin(e.target.value)} />
-                  <input className="map-input" placeholder="🏁 ¿A dónde deseas ir de forma segura?" value={destination} onChange={e => setDestination(e.target.value)} />
-                  
-                  {activeRoute && currentRouteIndex !== null && (
-                    <div style={{ color: rutasAlternativas[currentRouteIndex].color, fontSize: '12px', fontWeight: 'bold', textAlign: 'center', padding: '4px', backgroundColor: 'rgba(15, 23, 42, 0.9)', borderRadius: '4px' }}>📍 {rutasAlternativas[currentRouteIndex].nombre}</div>
-                  )}
-
-                  <button className="btn-primary" onClick={() => { if (activeRoute) { setActiveRoute(false); setCurrentRouteIndex(null); setOrigin(''); setDestination(''); } else { generarRutaAleatoria(); } }} style={{ backgroundColor: activeRoute ? '#ef4444' : '#1CC0F3' }}>
-                    {activeRoute ? '❌ Limpiar Ruta' : 'Optimizar Ruta con IA'}
+                <div className="planner-row-content">
+                  <div className="planner-inputs-group">
+                    <input className="map-input-clean" placeholder="📍 Selecciona Origen..." value={origin} disabled={true} />
+                    <div className="planner-arrow">➔</div>
+                    <input className="map-input-clean" placeholder="🏁 Esperando destino seguro..." value={destination} disabled={true} />
+                  </div>
+                  <button className="btn-planner-action" onClick={() => { activeRoute ? (setActiveRoute(false), setCurrentRouteIndex(null), setOrigin(''), setDestination('')) : generarRutaAleatoria() }} style={{ backgroundColor: activeRoute ? '#ef4444' : '#1CC0F3' }}>
+                    {activeRoute ? '❌ Limpiar Mapa' : 'Optimizar con Gemini'}
                   </button>
                   {activeRoute && currentRouteIndex !== null && (
-                    <div className="route-info" style={{ color: '#ffffff', backgroundColor: 'rgba(12, 16, 51, 0.9)', padding: '10px', borderRadius: '6px', borderLeft: `4px solid ${rutasAlternativas[currentRouteIndex].color}`, marginTop: '4px', fontSize: '12px' }}>
-                      {rutasAlternativas[currentRouteIndex].detalles}
+                    <div className="planner-floating-info">
+                      <span style={{ color: rutasAlternativas[currentRouteIndex].color, fontWeight: '800', fontSize: '13px', display: 'block', marginBottom: '4px' }}>{rutasAlternativas[currentRouteIndex].nombre}</span>
+                      <p style={{ fontSize: '12px', color: '#8B9DD6', lineHeight: '1.4' }}>{rutasAlternativas[currentRouteIndex].detalles}</p>
                     </div>
                   )}
                 </div>
               )}
             </div>
-
-            <button className="fab-report" style={{ zIndex: 10, position: 'absolute', bottom: '24px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#10b981', boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)', width: 'auto', padding: '12px 24px', whiteSpace: 'nowrap' }} onClick={generarRutaAleatoria}>
-              🔄 Recalcular Ruta Alternativa (Simular IA)
-            </button>
           </div>
         )}
 
-        {/* ================= PANTALLA 2: REPORTE CON CÁMARA ================= */}
+        {/* ================= PANTALLA 2: REPORTE MEJORADO CON ESCANEO NERVIOSO ================= */}
         {currentScreen === 'report' && (
-          <div className="report-screen" style={{ padding: '20px' }}>
+          <div className="report-screen">
             {reportStep === 'camera' && (
-              <div style={{ textAlign: 'center' }}>
-                <h2 style={{ color: 'white', marginBottom: '10px' }}>📸 Reportar Obstáculo</h2>
-                <p style={{ color: 'gray', marginBottom: '20px' }}>Toma una foto para que Gemini IA analice el problema.</p>
+              <div className="report-camera-menu">
+                <h2>📸 Reporte de Incidente</h2>
+                <p className="subtitle">Registra incidentes viales mediante visión artificial de Gemini</p>
                 <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImageUpload} />
-                <button className="btn-primary" style={{ width: '100%', marginBottom: '12px' }} onClick={() => fileInputRef.current.click()}>
-                  Subir Foto Real
-                </button>
-                <button className="btn-primary" style={{ width: '100%', backgroundColor: '#a855f7' }} onClick={simulateCapture}>
-                  Simular Captura (Demo)
-                </button>
+                
+                <div className="report-action-box">
+                  <button className="btn-cyber-upload" onClick={() => fileInputRef.current.click()}>
+                    💾 Cargar Archivo Local
+                  </button>
+                  <button className="btn-cyber-simulate" onClick={simulateCapture}>
+                    🟢 Simular Escaneo Satelital (Demo)
+                  </button>
+                </div>
               </div>
             )}
 
+            {/* 🔥 FASE DE ESCANEO ACTIVO */}
             {reportStep === 'analyzing' && (
-              <div className="analyzing-container" style={{ textAlign: 'center', padding: '40px 0' }}>
-                <h3 style={{ color: '#1CC0F3' }}>🤖 Consultando IA de Gemini...</h3>
-                <p style={{ color: 'gray' }}>Extrayendo riesgos de movilidad en Tijuana...</p>
+              <div className="scanner-layout">
+                <div className="cyber-scanner-container">
+                  <img src={uploadedImage} alt="Escaneo en progreso" className="img-scanned" />
+                  <div className="laser-line"></div>
+                  <div className="scanner-overlay-grid"></div>
+                </div>
+                <div className="scanner-status">
+                  <div className="pulse-dot"></div>
+                  <h3>🤖 RED NEURONAL ADAPTATIVA PROCESANDO...</h3>
+                  <p>Clasificando daño estructural en la base de datos de Tijuana...</p>
+                </div>
               </div>
             )}
 
+            {/* FASE DE RESULTADOS REVELADOS */}
             {reportStep === 'results' && (
-              <div className="results-form">
-                <div className="form-group">
-                  <label className="form-label" style={{ color: 'white' }}>Tipo clasificado por la IA</label>
-                  <input className="form-input" value={aiData.type} readOnly style={{ fontWeight: 'bold', color: '#1CC0F3' }} />
-                </div>
-
-                <div className="form-group" style={{ marginTop: '12px' }}>
-                  <label className="form-label" style={{ color: 'white' }}>Semaforización de Gravedad</label>
-                  <div style={{ padding: '12px', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: aiData.severity === 'red' ? '#ef4444' : aiData.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>
-                    {aiData.severity === 'red' ? '🔴 ALTA' : aiData.severity === 'amber' ? '🟡 MEDIA' : '🟢 BAJA'} — {aiData.severityLabel}
+              <div className="results-wrapper">
+                <div className="results-card">
+                  <div className="results-header-badge">✓ ESCANEO COMPLETADO POR GEMINI 1.5</div>
+                  
+                  <div className="result-img-preview-box">
+                    <img src={uploadedImage} alt="Incidente Procesado" className="result-img-preview" />
                   </div>
-                </div>
 
-                <div className="form-group" style={{ marginTop: '12px' }}>
-                  <label className="form-label" style={{ color: 'white' }}>Descripción generada automáticamente</label>
-                  <textarea className="form-textarea" style={{ width: '100%', minHeight: '60px' }} value={aiData.descripcion} onChange={(e) => setAiData({...aiData, descripcion: e.target.value})}></textarea>
-                </div>
+                  <div className="form-group-cyber">
+                    <label>Incidente Identificado</label>
+                    <input className="input-cyber-readonly" value={aiData.type} readOnly />
+                  </div>
 
-                <button className="btn-primary" style={{ marginTop: '24px', width: '100%', backgroundColor: '#1CC0F3' }} onClick={publishReport}>
-                Alimentar Mapa Colectivo
-                </button>
+                  <div className="form-group-cyber">
+                    <label>Riesgo de Afectación de Ruta</label>
+                    <div className={`severity-banner-cyber ${aiData.severity}`}>
+                      {aiData.severity === 'red' ? '🔴 CRÍTICO' : '🟡 PRECAUCIÓN'} — {aiData.severityLabel}
+                    </div>
+                  </div>
+
+                  <div className="form-group-cyber">
+                    <label>Dictamen de la IA (Editable)</label>
+                    <textarea className="textarea-cyber" value={aiData.descripcion} onChange={(e) => setAiData({...aiData, descripcion: e.target.value})} />
+                  </div>
+
+                  <button className="btn-cyber-submit" onClick={publishReport}>
+                    📡 Alimentar Servidor Colectivo (Supabase)
+                  </button>
+                </div>
               </div>
             )}
 
             {reportStep === 'published' && (
-              <div className="published-container" style={{ textAlign: 'center', padding: '40px 0' }}>
-                <h2 style={{ color: 'white', marginBottom: '8px' }}>¡Mapa Actualizado!</h2>
-                <p style={{ color: 'gray', marginBottom: '32px' }}>La base de datos absorbió el reporte. Las próximas rutas evitarán esta zona.</p>
-                <button className="btn-primary" onClick={() => setCurrentScreen('map')}>
-                  Volver al Mapa Seguro
+              <div className="published-cyber-box">
+                <div className="success-glow-ring">✓</div>
+                <h2>¡Sincronización Exitosa!</h2>
+                <p>Los datos han sido consolidados en Supabase. El algoritmo de ruteo de Tijuana asimilará la evasión de este punto.</p>
+                <button className="btn-cyber-back" onClick={() => { setCurrentScreen('map'); setReportStep('camera'); }}>
+                  Volver al Mapa Global
                 </button>
               </div>
             )}
@@ -414,22 +475,24 @@ function App() {
 
         {/* ================= PANTALLA 3: COMUNIDAD ================= */}
         {currentScreen === 'community' && (
-          <div className="community-screen" style={{ padding: '20px' }}>
-            <div className="community-header" style={{ marginBottom: '20px' }}>
-              <h2 style={{ color: 'white' }}>Reportes Activos</h2>
-              <p style={{ color: 'gray' }}>Tijuana — Base de datos inteligente</p>
-            </div>
-
-            <div className="reports-feed">
+          <div className="community-screen">
+            <h2>📡 Red de Reportes Colectivos</h2>
+            <p className="subtitle">Historial en tiempo real de los obstáculos validados en Supabase</p>
+            <div className="reports-feed-cyber">
               {reports.map(report => (
-                <div key={report.id} className="report-card" style={{ display: 'flex', gap: '16px', padding: '12px', backgroundColor: '#1e293b', borderRadius: '8px', marginBottom: '12px' }}>
-                  <img src={report.image} alt="Reporte" className="report-thumb" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} />
-                  <div className="report-content">
-                    <div className="report-header" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <span className={`report-badge ${report.severity}`} style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '12px', backgroundColor: report.severity === 'red' ? '#ef4444' : report.severity === 'amber' ? '#f59e0b' : '#10b981', color: 'white' }}>{report.severitylabel}</span>
+                <div key={report.id} className="report-card-cyber">
+                  <img src={report.image} alt="Reporte" className="card-thumb" />
+                  <div className="card-info">
+                    <span className={`card-badge-severity ${report.severity}`}>{report.severitylabel || 'Validado'}</span>
+                    <h3>{report.type}</h3>
+                    <p>{report.descripcion}</p>
+                    
+                    {/* Contador de validación rápida en el Feed */}
+                    <div className="feed-stats">
+                      <span className="stat-confirm">⚠️ {report.still_there_votes || 0} confirmados</span>
+                      <span className="stat-resolve">✅ {report.resolved_votes || 0}/3 de salida</span>
                     </div>
-                    <h3 style={{ margin: '4px 0', fontSize: '16px', color: 'white' }}>{report.type}</h3>
-                    <p style={{ fontSize: '13px', color: 'lightgray', margin: '4px 0' }}>{report.descripcion}</p>
+
                   </div>
                 </div>
               ))}
@@ -437,7 +500,26 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* 🧭 NAVBAR ÚNICA Y BIEN ACOPLADA */}
+      <nav className="nav-bar">
+        <div className="logo-area">
+          <div className="logo-title">RutaViva</div>
+          <div className="logo-tagline">Movilidad Inteligente</div>
+        </div>
+        <button className={`nav-item ${currentScreen === 'map' ? 'active' : ''}`} onClick={() => setCurrentScreen('map')}>
+          <span className="icon">🗺️</span> <span className="label">Mapa</span>
+        </button>
+        <button className={`nav-item ${currentScreen === 'report' ? 'active' : ''}`} onClick={() => { setCurrentScreen('report'); setReportStep('camera'); setUploadedImage(null); }}>
+          <span className="icon">📸</span> <span className="label">Reportar</span>
+        </button>
+        <button className={`nav-item ${currentScreen === 'community' ? 'active' : ''}`} onClick={() => setCurrentScreen('community')}>
+          <span className="icon">🏘️</span> <span className="label">Comunidad</span>
+        </button>
+      </nav>
+
     </div>
   );
 }
+
 export default App;
